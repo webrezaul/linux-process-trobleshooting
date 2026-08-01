@@ -1,8 +1,5 @@
 # Linux Process Troubleshooting: Apache Service Fix (Stratos DC)
 
-[![DevOps](https://img.shields.io/badge/DevOps-KodeKloud-blue.svg)](https://kodekloud.com)
-[![Apache](https://img.shields.io/badge/Apache-httpd-brightgreen.svg)](https://httpd.apache.org)
-[![Lab](https://img.shields.io/badge/Lab-Completed%20✓-success.svg)](#)
 
 ## Problem
 
@@ -53,6 +50,3 @@ curl -I http://stapp03:<PORT>
 
 Expected: `HTTP/1.1 403 Forbidden` (Apache running, no content hosted).
 
-## Result
-
-✅ Lab completed successfully. Ref ID: `680679265500bdf7ab9a7b2e`
