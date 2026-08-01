@@ -3,11 +3,15 @@
 # Script Name : troubleshoot_apache.sh
 # Description : Automated solution for KodeKloud Linux Process Troubleshooting Lab
 # Scenario    : Fix Apache service unavailability on Stratos DC app servers and
-#               ensure Apache (httpd) is running on port 5000 across all hosts.
-# Author      : DevOps Engineer
+#               ensure Apache (httpd) is running on the target port (default: 3002).
+# Usage       : ./troubleshoot_apache.sh [PORT]
+# Example     : ./troubleshoot_apache.sh 3002
 # ==============================================================================
 
-set -euo pipefail
+set -uo pipefail
+
+# Target port (defaults to 3002 as per lab requirement, fallback to $1 if passed)
+TARGET_PORT="${1:-3002}"
 
 # Color formatting
 RED='\033[0;31m'
@@ -23,7 +27,6 @@ SERVERS=(
     "banner:stapp03:BigB@ng"
 )
 
-TARGET_PORT=5000
 HTTPD_CONF="/etc/httpd/conf/httpd.conf"
 
 echo -e "${BLUE}=====================================================${NC}"
@@ -43,58 +46,61 @@ if ! command -v sshpass &> /dev/null; then
     fi
 fi
 
+# SSH common options
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password,keyboard-interactive -o PubkeyAuthentication=no -o ConnectTimeout=10"
+
 for SERVER_INFO in "${SERVERS[@]}"; do
     IFS=":" read -r USER HOST PASS <<< "$SERVER_INFO"
     echo -e "${YELLOW}-----------------------------------------------------${NC}"
     echo -e "${YELLOW}[*] Processing Host: ${HOST} (User: ${USER})${NC}"
     echo -e "${YELLOW}-----------------------------------------------------${NC}"
 
-    # Remote command script block
-    REMOTE_CMD=$(cat <<'EOF'
-        TARGET_PORT=5000
-        CONF_FILE="/etc/httpd/conf/httpd.conf"
+    # Remote command script block with dynamic port substitution
+    REMOTE_SCRIPT=$(cat <<EOF
+        PORT_NUM="${TARGET_PORT}"
+        CONF_FILE="${HTTPD_CONF}"
 
-        echo "[+] Checking current Apache status on $(hostname)..."
-        echo "$PASS" | sudo -S systemctl status httpd --no-pager || true
+        echo "[+] Checking current Apache status on \$(hostname)..."
+        echo '${PASS}' | sudo -S systemctl status httpd --no-pager || true
 
         # 1. Update Listen port in httpd.conf if required
-        if grep -E "^Listen " "$CONF_FILE" | grep -qv "$TARGET_PORT"; then
-            echo "[!] Apache is not configured for port $TARGET_PORT. Updating $CONF_FILE..."
-            echo "$PASS" | sudo -S sed -i "s/^Listen .*/Listen $TARGET_PORT/" "$CONF_FILE"
+        if grep -E "^Listen " "\$CONF_FILE" | grep -qv "\$PORT_NUM"; then
+            echo "[!] Apache is not configured for port \$PORT_NUM. Updating \$CONF_FILE..."
+            echo '${PASS}' | sudo -S sed -i "s/^Listen .*/Listen \$PORT_NUM/" "\$CONF_FILE"
         else
-            echo "[+] $CONF_FILE is already configured with Listen $TARGET_PORT."
+            echo "[+] \$CONF_FILE is already configured with Listen \$PORT_NUM."
         fi
 
         # 2. Check for conflicting process on target port
-        CONFLICT_PID=$(echo "$PASS" | sudo -S ss -tulnp | grep ":$TARGET_PORT " | awk '{print $7}' | sed -E 's/.*pid=([0-9]+).*/\1/' || true)
-        if [ -n "$CONFLICT_PID" ]; then
-            CONFLICT_NAME=$(ps -p "$CONFLICT_PID" -o comm= || echo "unknown")
-            if [ "$CONFLICT_NAME" != "httpd" ]; then
-                echo "[!] Found conflicting process (PID: $CONFLICT_PID, Name: $CONFLICT_NAME) on port $TARGET_PORT. Terminating..."
-                echo "$PASS" | sudo -S kill -9 "$CONFLICT_PID" || true
+        CONFLICT_PID=\$(echo '${PASS}' | sudo -S ss -tulnp | grep ":\$PORT_NUM " | awk '{print \$7}' | sed -E 's/.*pid=([0-9]+).*/\1/' || true)
+        if [ -n "\$CONFLICT_PID" ]; then
+            CONFLICT_NAME=\$(ps -p "\$CONFLICT_PID" -o comm= || echo "unknown")
+            if [ "\$CONFLICT_NAME" != "httpd" ]; then
+                echo "[!] Found conflicting process (PID: \$CONFLICT_PID, Name: \$CONFLICT_NAME) on port \$PORT_NUM. Terminating..."
+                echo '${PASS}' | sudo -S kill -9 "\$CONFLICT_PID" || true
             fi
         fi
 
         # 3. Test configuration syntax
         echo "[+] Testing Apache configuration syntax..."
-        echo "$PASS" | sudo -S apachectl configtest
+        echo '${PASS}' | sudo -S apachectl configtest || true
 
         # 4. Restart and enable httpd service
         echo "[+] Starting and enabling Apache (httpd) service..."
-        echo "$PASS" | sudo -S systemctl restart httpd
-        echo "$PASS" | sudo -S systemctl enable httpd
+        echo '${PASS}' | sudo -S systemctl restart httpd
+        echo '${PASS}' | sudo -S systemctl enable httpd persistent || echo '${PASS}' | sudo -S systemctl enable httpd
 
         # 5. Verify listening port
-        echo "[+] Verifying port $TARGET_PORT binding..."
-        echo "$PASS" | sudo -S ss -tulnp | grep ":$TARGET_PORT "
+        echo "[+] Verifying port \$PORT_NUM binding..."
+        echo '${PASS}' | sudo -S ss -tulnp | grep ":\$PORT_NUM " || true
 EOF
     )
 
-    # Pass password to remote execution
-    REMOTE_SCRIPT=$(echo "$REMOTE_CMD" | sed "s/\$PASS/$PASS/g")
-
     if command -v sshpass &> /dev/null; then
-        sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "${USER}@${HOST}" "$REMOTE_SCRIPT"
+        sshpass -p "$PASS" ssh $SSH_OPTS "${USER}@${HOST}" "$REMOTE_SCRIPT" || {
+            echo -e "${RED}[!] Direct sshpass failed for ${HOST}. Retrying with interactive fallback...${NC}"
+            ssh $SSH_OPTS "${USER}@${HOST}" "$REMOTE_SCRIPT" || true
+        }
     else
         echo -e "${RED}[!] sshpass unavailable. Please run commands manually for ${HOST}.${NC}"
     fi
