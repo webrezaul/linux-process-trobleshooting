@@ -3,7 +3,7 @@
 [![DevOps](https://img.shields.io/badge/DevOps-KodeKloud-blue.svg)](https://kodekloud.com)
 [![Linux](https://img.shields.io/badge/Linux-RHEL%2FCentOS-red.svg)](https://www.redhat.com)
 [![Apache](https://img.shields.io/badge/Apache-httpd-brightgreen.svg)](https://httpd.apache.org)
-[![Status](https://img.shields.io/badge/Status-Completed-success.svg)](#)
+[![Lab](https://img.shields.io/badge/Lab-Completed%20✓-success.svg)](#)
 
 ## 📋 Table of Contents
 
@@ -13,6 +13,7 @@
 - [Step-by-Step Manual Troubleshooting](#️-step-by-step-manual-troubleshooting)
 - [Automated Solution Script](#-automated-solution-script)
 - [Verification & Validation](#-verification--validation)
+- [Lab Result](#-lab-result)
 
 ---
 
@@ -159,9 +160,37 @@ curl -I http://stapp03:<PORT>
 ### On Each App Server
 
 ```bash
+sudo systemctl status httpd
 sudo ss -tulnp | grep :<PORT>
 sudo systemctl is-enabled httpd
 ```
+
+**Expected output:**
+
+| Check | Expected |
+|-------|----------|
+| `systemctl status httpd` | `Active: active (running)` |
+| `ss -tulnp \| grep :<PORT>` | `tcp LISTEN 0 511 *:<PORT> *:* users:(("httpd",...))` |
+| `systemctl is-enabled httpd` | `enabled` |
+
+---
+
+## 🏆 Lab Result
+
+```
+✅ CONGRATULATIONS!!!!
+
+You have successfully completed the challenge.
+Results have been saved.
+Ref ID: 680679265500bdf7ab9a7b2e
+```
+
+**Verified on stapp01:**
+- `httpd.service`: **active (running)**, **enabled**
+- Listening on **port 3002**
+- Server configured: `Apache/2.4.62 (CentOS Stream)`
+- Main PID: `58591`
+- HTTP response: `403 Forbidden` (expected — no content hosted)
 
 ---
 
