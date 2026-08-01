@@ -3,37 +3,66 @@
 # Script Name : troubleshoot_apache.sh
 # Description : Automated solution for KodeKloud Linux Process Troubleshooting Lab
 # Scenario    : Fix Apache service unavailability on Stratos DC app servers and
-#               ensure Apache (httpd) is running on the target port (default: 3002).
+#               ensure Apache (httpd) is running on the target port.
 # Usage       : ./troubleshoot_apache.sh [PORT]
 # Example     : ./troubleshoot_apache.sh 3002
 # ==============================================================================
 
+# Disable bash history expansion (prevents '!' in passwords like 'Am3r!ca' from being interpreted)
 set +H
 
 TARGET_PORT="${1:-3002}"
 
-# Adding -T disables pseudo-terminal allocation on remote server, preventing sudo TTY collisions with sshpass
+# -T: disable pseudo-terminal allocation (prevents TTY conflicts with sshpass/sudo)
+# LogLevel=ERROR: suppress "Permanently added to known hosts" warning
 SSH_OPTS="-T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10"
 
 echo "====================================================="
-echo " Starting Apache Troubleshooting (Port: ${TARGET_PORT})"
+echo " Apache Troubleshooting - Stratos DC (Port: ${TARGET_PORT})"
 echo "====================================================="
 
-# Host 1: stapp01 (tony)
-echo "[*] Processing Host: stapp01 (User: tony)"
-sshpass -p 'Ir0nM@n' ssh $SSH_OPTS tony@stapp01 "echo 'Ir0nM@n' | sudo -S sed -i 's/^Listen .*/Listen ${TARGET_PORT}/' /etc/httpd/conf/httpd.conf && echo 'Ir0nM@n' | sudo -S systemctl restart httpd && echo 'Ir0nM@n' | sudo -S systemctl enable httpd" || true
-curl -I "http://stapp01:${TARGET_PORT}"
+fix_host() {
+    local USER="$1"
+    local HOST="$2"
+    local PASS="$3"
 
-# Host 2: stapp02 (steve)
-echo "[*] Processing Host: stapp02 (User: steve)"
-sshpass -p 'Am3r!ca' ssh $SSH_OPTS steve@stapp02 "echo 'Am3r!ca' | sudo -S sed -i 's/^Listen .*/Listen ${TARGET_PORT}/' /etc/httpd/conf/httpd.conf && echo 'Am3r!ca' | sudo -S systemctl restart httpd && echo 'Am3r!ca' | sudo -S systemctl enable httpd" || true
-curl -I "http://stapp02:${TARGET_PORT}"
+    echo ""
+    echo "-----------------------------------------------------"
+    echo "[*] Processing Host: ${HOST} (User: ${USER})"
+    echo "-----------------------------------------------------"
 
-# Host 3: stapp03 (banner)
-echo "[*] Processing Host: stapp03 (User: banner)"
-sshpass -p 'BigB@ng' ssh $SSH_OPTS banner@stapp03 "echo 'BigB@ng' | sudo -S sed -i 's/^Listen .*/Listen ${TARGET_PORT}/' /etc/httpd/conf/httpd.conf && echo 'BigB@ng' | sudo -S systemctl restart httpd && echo 'BigB@ng' | sudo -S systemctl enable httpd" || true
-curl -I "http://stapp03:${TARGET_PORT}"
+    # Key fix: pipe password ONCE into a single 'sudo -S bash -c' block
+    # so all commands share one sudo session and one stdin password read.
+    sshpass -p "${PASS}" ssh ${SSH_OPTS} "${USER}@${HOST}" \
+        "echo '${PASS}' | sudo -S bash -c '
+            sed -i \"s/^Listen .*/Listen ${TARGET_PORT}/\" /etc/httpd/conf/httpd.conf
+            systemctl restart httpd
+            systemctl enable httpd
+            ss -tulnp | grep :${TARGET_PORT}
+        '" 2>/dev/null
 
+    if [ $? -eq 0 ]; then
+        echo "[+] Commands executed successfully on ${HOST}"
+    else
+        echo "[!] Warning: issue on ${HOST}, verifying via curl..."
+    fi
+
+    # Verify from jump-host
+    echo "[+] Verifying HTTP on ${HOST}:${TARGET_PORT}..."
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "http://${HOST}:${TARGET_PORT}" 2>/dev/null)
+    if echo "${HTTP_CODE}" | grep -qE "200|403|404"; then
+        echo "[SUCCESS] ${HOST} => HTTP ${HTTP_CODE} on port ${TARGET_PORT}"
+    else
+        echo "[FAIL] ${HOST} => HTTP ${HTTP_CODE} (expected 200/403/404)"
+    fi
+}
+
+# Process all three app servers
+fix_host "tony"   "stapp01" 'Ir0nM@n'
+fix_host "steve"  "stapp02" 'Am3r!ca'
+fix_host "banner" "stapp03" 'BigB@ng'
+
+echo ""
 echo "====================================================="
-echo " Complete!"
+echo " Complete! Click 'Check' in the KodeKloud UI."
 echo "====================================================="

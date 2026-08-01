@@ -6,16 +6,13 @@
 [![Status](https://img.shields.io/badge/Status-Completed-success.svg)](#)
 
 ## 📋 Table of Contents
+
 - [Problem Scenario](#-problem-scenario)
-- [Target System Topology](#-target-system-topology)
+- [Target System Topology](#️-target-system-topology)
 - [Root Cause Analysis](#-root-cause-analysis)
-- [Step-by-Step Troubleshooting Guide](#-step-by-step-troubleshooting-guide)
-  - [1. Identify Faulty Host](#1-identify-faulty-host)
-  - [2. Inspect & Resolve Config / Process Conflicts](#2-inspect--resolve-config--process-conflicts)
-  - [3. Start & Enable Apache Service](#3-start--enable-apache-service)
+- [Step-by-Step Manual Troubleshooting](#️-step-by-step-manual-troubleshooting)
 - [Automated Solution Script](#-automated-solution-script)
 - [Verification & Validation](#-verification--validation)
-- [GitHub Deployment Commands](#-github-deployment-commands)
 
 ---
 
@@ -23,149 +20,147 @@
 
 The production support team of **xFusionCorp Industries** deployed monitoring tools across all systems. A monitoring system reported **Apache service unavailability** on one of the application servers in **Stratos DC**.
 
-### Key Requirements:
+### Key Requirements
+
 1. Identify the faulty app host and fix the underlying process/service issue.
-2. Ensure the Apache service (`httpd`) is up and running on all app hosts (`stapp01`, `stapp02`, `stapp03`).
-3. Ensure Apache is listening on the assigned port (**port 3002** / **port 5000** as required by the lab prompt) on all app servers.
+2. Ensure the Apache service (`httpd`) is **up and running** on all app hosts (`stapp01`, `stapp02`, `stapp03`).
+3. Ensure Apache is listening on the **assigned port** (e.g. `3002`, `5000` — varies per lab instance) on all app servers.
+
+> **Note:** The port number changes across lab instances. Check the lab prompt carefully before running commands.
 
 ---
 
 ## 🖥️ Target System Topology
 
-| Hostname | Server IP | Default User | Default SSH Password | Target Service | Assigned Port |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **stapp01** | `172.16.238.10` | `tony` | `Ir0nM@n` | `httpd` | `3002` |
-| **stapp02** | `172.16.238.11` | `steve` | `Am3r!ca` | `httpd` | `3002` |
-| **stapp03** | `172.16.238.12` | `banner` | `BigB@ng` | `httpd` | `3002` |
+| Hostname | Server IP | User | SSH Password | Service |
+| :--- | :--- | :--- | :--- | :--- |
+| **stapp01** | `172.16.238.10` | `tony` | `Ir0nM@n` | `httpd` |
+| **stapp02** | `172.16.238.11` | `steve` | `Am3r!ca` | `httpd` |
+| **stapp03** | `172.16.238.12` | `banner` | `BigB@ng` | `httpd` |
+
+> All commands are executed from the **jump host** (`thor@jump-host`).
 
 ---
 
 ## 🔍 Root Cause Analysis
 
-During inspection, Apache service failures on application hosts typically stem from one of three issues:
-1. **Service Inactive**: `httpd` is stopped or not set to automatically start on boot.
-2. **Incorrect Configuration**: `/etc/httpd/conf/httpd.conf` is set to listen on default port `80` instead of target port `3002`.
-3. **Port Conflict**: Another rogue process (or legacy service) is holding open the target port (`3002`), causing `httpd` startup to fail with `Address already in use`.
+Apache service failures on Stratos DC app hosts typically stem from one or more of the following:
+
+| # | Cause | Symptom |
+|---|-------|---------|
+| 1 | **Service not started** | `httpd` is stopped / not enabled on boot |
+| 2 | **Wrong Listen port** | `/etc/httpd/conf/httpd.conf` has `Listen 80` instead of the assigned port |
+| 3 | **Port conflict** | A rogue process occupies the assigned port, blocking `httpd` from binding |
 
 ---
 
-## 🛠️ Step-by-Step Troubleshooting Guide
+## 🛠️ Step-by-Step Manual Troubleshooting
 
 ### 1. Identify Faulty Host
 
-From `jump-host` (`thor`), run `curl` against target port (e.g. `3002`) on all app servers:
+From `jump-host`, test connectivity to the assigned port on each app server:
 
 ```bash
-curl -Iv http://stapp01:3002
-curl -Iv http://stapp02:3002
-curl -Iv http://stapp03:3002
+curl -Iv http://stapp01:<PORT>
+curl -Iv http://stapp02:<PORT>
+curl -Iv http://stapp03:<PORT>
 ```
 
----
+### 2. SSH into each host and fix
 
-### 2. Inspect & Resolve Config / Process Conflicts
+Replace `<PORT>` with the port from your lab prompt (e.g., `3002`).
 
-SSH into each application server to check and remediate the configuration:
+#### stapp01
 
-#### Host 1: `stapp01`
 ```bash
 ssh tony@stapp01
 # Password: Ir0nM@n
 
-# Check httpd status
 sudo systemctl status httpd
+sudo grep "^Listen" /etc/httpd/conf/httpd.conf
+sudo sed -i 's/^Listen .*/Listen <PORT>/' /etc/httpd/conf/httpd.conf
 
-# Verify httpd configuration port
-sudo grep -i "^Listen" /etc/httpd/conf/httpd.conf
+# Kill any conflicting process on the port
+sudo ss -tulnp | grep :<PORT>
+# sudo kill -9 <conflicting_PID>
 
-# Update Listen port to 3002
-sudo sed -i 's/^Listen .*/Listen 3002/' /etc/httpd/conf/httpd.conf
-
-# Check if any conflicting process binds to port 3002
-sudo ss -tulnp | grep :3002
-
-# If a non-httpd process is found, kill it:
-# sudo kill -9 <PID>
-
-# Start & Enable Apache
 sudo apachectl configtest
 sudo systemctl restart httpd
 sudo systemctl enable httpd
+exit
 ```
 
-#### Host 2: `stapp02`
+#### stapp02
+
 ```bash
 ssh steve@stapp02
-# Password: Am3r!ca (Note: Single quote password in bash to avoid ! expansion)
+# Password: Am3r!ca
 
-# Update configuration & start service
-sudo sed -i 's/^Listen .*/Listen 3002/' /etc/httpd/conf/httpd.conf
+sudo sed -i 's/^Listen .*/Listen <PORT>/' /etc/httpd/conf/httpd.conf
 sudo systemctl restart httpd
 sudo systemctl enable httpd
+exit
 ```
 
-#### Host 3: `stapp03`
+#### stapp03
+
 ```bash
 ssh banner@stapp03
 # Password: BigB@ng
 
-# Update configuration & start service
-sudo sed -i 's/^Listen .*/Listen 3002/' /etc/httpd/conf/httpd.conf
+sudo sed -i 's/^Listen .*/Listen <PORT>/' /etc/httpd/conf/httpd.conf
 sudo systemctl restart httpd
 sudo systemctl enable httpd
+exit
 ```
 
 ---
 
 ## ⚡ Automated Solution Script
 
-You can execute the included [`troubleshoot_apache.sh`](troubleshoot_apache.sh) script directly from `jump-host` to automatically troubleshoot and fix all 3 servers in one command:
+The [`troubleshoot_apache.sh`](troubleshoot_apache.sh) script automates the entire fix across all 3 servers from `jump-host` in a single command.
+
+### Usage
 
 ```bash
-# Make script executable
 chmod +x troubleshoot_apache.sh
+./troubleshoot_apache.sh <PORT>
+```
 
-# Run for port 3002 (or pass any custom port as $1)
+**Example:**
+
+```bash
 ./troubleshoot_apache.sh 3002
 ```
+
+### How It Works
+
+1. SSHes into each app server via `sshpass`.
+2. Updates `/etc/httpd/conf/httpd.conf` to `Listen <PORT>`.
+3. Restarts and enables `httpd` service.
+4. Verifies HTTP response from `jump-host` using `curl`.
+
+> **Design note:** The script pipes the password once into a single `sudo -S bash -c '...'` block so that all commands share one sudo session — this avoids the `Permission denied, please try again` noise caused by chained `echo | sudo -S` invocations where subsequent sudos find an empty stdin.
 
 ---
 
 ## ✅ Verification & Validation
 
-To ensure all servers meet lab requirements:
-
-1. **Check Listening Ports on App Servers**:
-   ```bash
-   sudo ss -tulnp | grep 3002
-   ```
-   *Expected Output:*
-   ```text
-   tcp   LISTEN 0 511 *:3002 *:* users:(("httpd",pid=XXXX,fd=X))
-   ```
-
-2. **Verify HTTP Response from Jump Host**:
-   ```bash
-   curl -I http://stapp01:3002
-   curl -I http://stapp02:3002
-   curl -I http://stapp03:3002
-   ```
-
-3. **Verify Service Persistence**:
-   ```bash
-   sudo systemctl is-enabled httpd
-   ```
-
----
-
-## 📤 GitHub Deployment Commands
-
-To push updates to your GitHub repository:
+### From Jump Host
 
 ```bash
-git add .
-git commit -m "fix: update target port to 3002 and improve SSH connection handling"
-git push origin main
+curl -I http://stapp01:<PORT>
+curl -I http://stapp02:<PORT>
+curl -I http://stapp03:<PORT>
+```
+
+**Expected:** `HTTP/1.1 403 Forbidden` (Apache is running but no content is hosted yet — this is normal).
+
+### On Each App Server
+
+```bash
+sudo ss -tulnp | grep :<PORT>
+sudo systemctl is-enabled httpd
 ```
 
 ---
